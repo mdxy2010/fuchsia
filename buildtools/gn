@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Copyright 2016 The Fuchsia Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+set -e
+
+readonly SCRIPT_ROOT="$(cd $(dirname ${BASH_SOURCE[0]} ) && pwd)"
+readonly FUCHSIA_ROOT="$(cd "$SCRIPT_ROOT/.." && pwd)"
+readonly TOOL_NAME=$(basename "$0")
+
+set -- --root="$FUCHSIA_ROOT" --dotfile="$FUCHSIA_ROOT/build/gn/.gn" "$@"
+
+source "${SCRIPT_ROOT}/exec_tool.sh"

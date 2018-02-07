@@ -1,0 +1,161 @@
+# Copyright 2016 The Fuchsia Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build/config/sysroot.gni")
+import("//build/gn/config.gni")
+import("//build/toolchain/ccache.gni")
+import("//build/toolchain/clang_toolchain.gni")
+
+assert(current_os == "fuchsia")
+
+config("werror") {
+  if (!use_ccache) {
+    cflags = [
+      "-Werror",
+
+      # Declarations marked as deprecated should cause build failures, rather
+      # they should emit warnings to notify developers about the use of
+      # deprecated interfaces.
+      "-Wno-error=deprecated-declarations",
+
+      # Do not add additional -Wno-error to this config.
+    ]
+  }
+}
+
+config("icf") {
+  # This changes C/C++ semantics and might be incompatible with third-party
+  # code that relies on function pointers comparison.
+  ldflags = [ "-Wl,--icf=all" ]
+}
+
+config("safestack") {
+  # This may cause issues in code that makes assumptions about stack layout
+  # such as garbage collectors.
+  cflags = [
+    "-fsanitize=safe-stack",
+    "-fstack-protector-strong",
+  ]
+  asmflags = cflags
+  ldflags = cflags
+}
+
+# ccache, at least in some configurations, caches preprocessed content. This
+# means that by the time the compiler sees it, macros are unrolled. A number
+# of gcc and clang diagnostics are conditioned on whether the source is part
+# of a macro or not. This is because a "reasonable" looking macro invocation
+# may end up doing something silly internally. This can mean self assignment
+# and tautological comparisons, since macros are not typed. Macros also tend
+# to over-parenthesize, and so on. This particular list of options was found
+# via trial and error, and might be the best way of keeping the build quiet.
+config("ccache") {
+  cflags = [
+    "-Wno-error",
+    "-Qunused-arguments",
+    "-Wno-parentheses-equality",
+    "-Wno-self-assign",
+    "-Wno-tautological-compare",
+    "-Wno-unused-command-line-argument",
+  ]
+  asmflags = cflags
+}
+
+config("compiler") {
+  cflags = []
+  cflags_c = [ "-std=c11" ]
+  cflags_cc = [ "-std=c++14" ]
+  ldflags = [ "-Wl,--threads" ]
+  configs = [
+    ":compiler_sysroot",
+    ":compiler_target",
+    ":compiler_cpu",
+    ":toolchain_version_stamp",
+  ]
+  if (use_ccache) {
+    configs += [ ":ccache" ]
+  }
+  asmflags = cflags + cflags_c
+}
+
+config("toolchain_version_stamp") {
+  # We want to force a recompile and relink of the world whenever our toolchain changes since
+  # artifacts from an older version of the toolchain may or may not be compatible with newer ones.
+  # To achieve this, we insert a synthetic define into the compile line.
+  clang_version_file =
+      "//buildtools/${host_platform}/clang/.versions/clang.cipd_version"
+  if (host_os == "linux") {
+    clang_stamp_file = "//buildtools/linux64/clang.stamp"
+  } else if (host_os == "mac") {
+    clang_stamp_file = "//buildtools/mac/clang.stamp"
+  } else {
+    assert(false, "Unsupported host OS")
+  }
+  # TODO(TO-723): read the version_file directly when GN supports JSON input file conversion.
+  toolchain_version = exec_script("//build/clang_version.py",
+                                  [
+                                    rebase_path(clang_version_file),
+                                    rebase_path(clang_stamp_file),
+                                  ],
+                                  "trim string")
+  defines = [ "TOOLCHAIN_VERSION=$toolchain_version" ]
+}
+
+config("compiler_sysroot") {
+  # The sysroot for Fuchsia is part of Zircon build which is pointed to by the sysroot variable.
+  cflags = [ "--sysroot=${sysroot}" ]
+  ldflags = cflags
+  asmflags = cflags
+}
+
+config("compiler_target") {
+  cflags = [ "--target=$clang_target" ]
+  asmflags = cflags
+  ldflags = cflags
+}
+
+config("compiler_cpu") {
+  cflags = []
+  if (current_cpu == "x64") {
+    cflags += [
+      "-march=x86-64",
+      "-mcx16",
+    ]
+  }
+  ldflags = cflags
+  asmflags = cflags
+}
+
+config("shared_library_config") {
+  cflags = [ "-fPIC" ]
+}
+
+config("fdio_config") {
+  libs = [ "fdio" ]
+  # TODO(pylaligand): find a better way to let executables link in fdio.
+  # Ideally their dependencies should be set up in such a way that it would get
+  # inherited from them.
+  lib_dirs = [ "//out/build-zircon/build-user-${zircon_cpu}/system/ulib/fdio" ]
+}
+
+config("executable_config") {
+}
+
+config("thread_safety_annotations") {
+  cflags_cc = [ "-Wthread-safety" ]
+  defines = [ "_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS" ]
+}
+
+config("enable_zircon_asserts") {
+  defines = [ "ZX_DEBUGLEVEL=2" ]
+}
+
+declare_args() {
+  zircon_asserts = is_debug
+}
+
+config("zircon_asserts") {
+  if (zircon_asserts) {
+    configs = [ ":enable_zircon_asserts" ]
+  }
+}

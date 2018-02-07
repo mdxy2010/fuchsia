@@ -1,0 +1,178 @@
+# Copyright 2018 The Fuchsia Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build/compiled_action.gni")
+import("sdk_molecule.gni")
+
+# A collection of elements to be published in an SDK.
+#
+# Parameters
+#
+#   name (optional)
+#     Name of the SDK.
+#     Defaults to the target's name.
+#
+#   export (optional)
+#     Whether to export the contents of this SDK to the output directory.
+#     This is useful when an SDK-like file structure is needed as part of the
+#     build, for example to port a language runtime which would otherwise rely
+#     on an official SDK.
+#     Defaults to false.
+#
+#   old_school (optional)
+#     If `export` is true, controls the layout of the produced SDK.
+#     An old-school SDK will essentially be a sysroot containing all the
+#     C/C++ packages.
+#     Note: this is a stop-gap measure to port runtimes to the new sysroot
+#     shape.
+#     Defaults to true.
+#
+#   domains (optional)
+#     If `export` is true, specifies the domains of SDK elements to export.
+#     Only the "c-pp" domain is currently supported.
+
+template("sdk") {
+  main_target_name = target_name
+  generation_target_name = "${target_name}_generate"
+  copy_target_name = "${target_name}_copy"
+  verification_target_name = "${target_name}_verify"
+
+  if (!is_fuchsia) {
+    assert(false, "SDKs can only target Fuchsia")
+  }
+  if (target_cpu == "x64") {
+    compiler_triple = "x86_64-fuchsia"
+  } else if (target_cpu == "arm64") {
+    compiler_triple = "aarch64-fuchsia"
+  } else {
+    assert(false, "Unrecognized CPU: $target_cpu")
+  }
+
+  # Generates the manifest.
+  sdk_molecule(generation_target_name) {
+    forward_variables_from(invoker, "*", [
+      "domains",
+      "export",
+      "old_school",
+    ])
+
+    metadata = [
+      {
+        key = "arch"
+        value = compiler_triple
+      }
+    ]
+  }
+
+  sdk_name = target_name
+  if (defined(invoker.name)) {
+    sdk_name = invoker.name
+  }
+  final_manifest_file = "$root_out_dir/sdk-manifests/$sdk_name"
+
+  # Copies the manifest to a central location.
+  copy(copy_target_name) {
+    sources = [
+      "$target_gen_dir/$generation_target_name.sdk",
+    ]
+
+    outputs = [
+      final_manifest_file,
+    ]
+
+    deps = [
+      ":$generation_target_name",
+    ]
+  }
+
+  # Verifies that the manifest is valid.
+  compiled_action(verification_target_name) {
+    tool = "//build/tools/json_validator"
+
+    stamp_file = "$target_gen_dir/$target_name.verified"
+    schema_file = "//build/sdk/manifest_schema.json"
+
+    inputs = [
+      final_manifest_file,
+      schema_file,
+    ]
+
+    outputs = [
+      stamp_file,
+    ]
+
+    args = [
+      rebase_path(schema_file),
+      rebase_path(final_manifest_file),
+      rebase_path(stamp_file),
+    ]
+
+    deps = [
+      ":$copy_target_name",
+    ]
+  }
+
+  group(main_target_name) {
+    deps = [
+      ":$generation_target_name",
+      ":$copy_target_name",
+      ":$verification_target_name",
+    ]
+  }
+
+  if (defined(invoker.export) && invoker.export) {
+    if (!defined(invoker.domains)) {
+      assert(false, "A list of domains to export must be specified.")
+    }
+
+    stamp_file = "$target_gen_dir/$target_name.exported"
+
+    action("${target_name}_export") {
+      script = "//build/sdk/export_sdk.py"
+
+      inputs = [
+        final_manifest_file,
+      ]
+
+      depfile = "$stamp_file.d"
+
+      outputs = [
+        stamp_file,
+      ]
+
+      args = [
+        "--out-dir",
+        rebase_path("$root_out_dir/sdks/$sdk_name"),
+        "--stamp-file",
+        rebase_path(stamp_file),
+        "--manifest",
+        rebase_path(final_manifest_file),
+        "--domains",
+      ] + invoker.domains + [
+        "--depfile",
+        rebase_path(depfile),
+        "--depname",
+        rebase_path(stamp_file, root_build_dir),
+      ]
+
+      if (invoker.old_school) {
+        args += [
+          "--old-school",
+        ]
+      }
+
+      deps = [
+        ":$copy_target_name",
+        ":$verification_target_name",
+      ]
+    }
+  } else { # Not exported.
+    if (defined(invoker.domains)) {
+      assert(false, "A domain list may only be set if export = true.")
+    }
+    if (defined(invoker.old_school)) {
+      assert(false, "Only exported SDKs may be old-school.")
+    }
+  }
+}

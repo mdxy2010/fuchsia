@@ -1,0 +1,146 @@
+# Copyright 2017 The Fuchsia Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build/dart/dart_library.gni")
+import("//build/dart/toolchain.gni")
+import("//build/toolchain/clang_toolchain.gni")
+
+# Defines a Dart application that can be run on the host
+#
+# Parameters
+#
+#   package_name (optional)
+#     Name of the dart package.
+#
+#   main_dart (required)
+#     File containing the main function of the application.
+#
+#   deps (optional)
+#     Dependencies of this application
+#
+#   non_dart_deps (optional)
+#     List of labels this package depends on that are not Dart packages. It
+#     typically doesn't need to be set.
+#
+#   output_name (optional)
+#     Name of the output file to generate. Defaults to $target_name.
+#
+#   disable_analysis (optional)
+#     Prevents analysis from being run on this target.
+template("dart_tool") {
+  assert(defined(invoker.main_dart), "Must specify main_dart file")
+
+  dart_library_target_name = target_name + "_dart_library"
+
+  dart_library(dart_library_target_name) {
+    forward_variables_from(invoker,
+                           [
+                             "deps",
+                             "disable_analysis",
+                             "source_dir",
+                           ])
+    if (defined(invoker.package_name)) {
+      package_name = invoker.package_name
+    } else {
+      infer_package_name = true
+    }
+
+    extra_analyzer_sources = [
+      invoker.main_dart,
+    ]
+  }
+
+  dart_sdk_label = "//third_party/dart:create_host_sdk"
+  dart_sdk_dir = "$dart_sdk_root_out_dir/dart-sdk"
+  dart_binary = "$dart_sdk_dir/bin/dart"
+
+  snapshot_path = "$target_gen_dir/${target_name}.snapshot"
+  depfile_path = "${snapshot_path}.d"
+  dart_target_gen_dir =
+      get_label_info(":bogus($dart_toolchain)", "target_gen_dir")
+  packages_path = "$dart_target_gen_dir/$dart_library_target_name.packages"
+
+  snapshot_target_name = target_name + "_snapshot"
+
+  gn_run_binary = "//build/gn_run_binary.sh"
+
+  # Creates a snapshot file.
+  # The main advantage of snapshotting is that it sets up source dependencies
+  # via a depfile so that a Dart app gets properly rebuilt when one of its
+  # sources is modified.
+  action(snapshot_target_name) {
+    if (defined(invoker.testonly)) {
+      testonly = invoker.testonly
+    }
+
+    depfile = depfile_path
+
+    outputs = [
+      snapshot_path,
+    ]
+
+    script = gn_run_binary
+
+    # The snapshot path needs to be rebased on top of the root build dir so
+    # that the resulting depfile gets properly formatted.
+    rebased_snapshot_path = rebase_path(snapshot_path, root_build_dir)
+    rebased_depfile_path = rebase_path(depfile_path)
+    rebased_packages_path = rebase_path(packages_path)
+
+    args = [
+      clang_prefix,
+      rebase_path(dart_binary, root_build_dir),
+      "--snapshot=$rebased_snapshot_path",
+      "--snapshot-depfile=$rebased_depfile_path",
+      "--packages=$rebased_packages_path",
+      rebase_path(invoker.main_dart),
+    ]
+
+    deps = [
+      ":$dart_library_target_name",
+      dart_sdk_label,
+    ]
+  }
+
+  if (defined(invoker.output_name)) {
+    app_name = invoker.output_name
+  } else {
+    app_name = target_name
+  }
+
+  # Builds a convenience script to invoke the app.
+  action(target_name) {
+    script = "//build/dart/gen_app_invocation.py"
+
+    app_path = "$root_out_dir/dart-tools/$app_name"
+
+    outputs = [
+      app_path,
+    ]
+
+    inputs = [
+      gn_run_binary,
+    ]
+
+    args = [
+      "--out",
+      rebase_path(app_path),
+      "--dart",
+      rebase_path(dart_binary),
+      "--snapshot",
+      rebase_path(snapshot_path),
+      "--gn_run_binary",
+      rebase_path(gn_run_binary),
+      "--clang-bindir",
+      clang_prefix,
+    ]
+
+    deps = [
+      ":$snapshot_target_name",
+    ]
+    if (defined(invoker.non_dart_deps)) {
+      deps += invoker.non_dart_deps
+    }
+  }
+}

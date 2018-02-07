@@ -1,0 +1,15 @@
+#!/bin/bash
+# Copyright 2017 The Fuchsia Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+### start a remote interactive shell in the target device
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"/lib/vars.sh
+
+fx-command-run ssh -q "$(fx-command-run netaddr --fuchsia)" "$@"
+result=$?
+if [[ "${result}" -ne 0 ]]; then
+  echo "ssh exited with a non-zero status: ${result}."
+fi
+exit "${result}"

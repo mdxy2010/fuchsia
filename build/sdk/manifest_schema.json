@@ -1,0 +1,106 @@
+{
+  "description": "Schema for a build-generated SDK manifest",
+  "type": "object",
+  "properties": {
+    "atoms": {
+      "description": "The set of all atoms in the current manifest, forming a complete dependency graph",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/atom"
+      }
+    },
+    "ids": {
+      "description": "IDs of the main atoms in this manifest (as opposed to dependencies)",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/atomId"
+      }
+    },
+    "meta": {
+      "description": "A collection of metadata about the SDK",
+      "$ref": "#/definitions/sdkMetadata"
+    }
+  },
+  "required": [
+      "atoms",
+      "ids",
+      "meta"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "atomId": {
+      "description": "Unique identifier for an atom",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "description": "The group of atoms this atom belongs to (e.g. 'c', 'dart', etc...)",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name of this atom, unique within its domain",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "atom": {
+      "description": "An SDK artifact",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The atom's unique identifier",
+          "$ref": "#/definitions/atomId"
+        },
+        "gn-label": {
+          "description": "Label of the GN target which generated the atom.",
+          "type": "string"
+        },
+        "files": {
+          "description": "The files making up the atom",
+          "type": "object",
+          "additionalProperties": {
+            "description": "The property name is the path of the file relative to the destination root of the atom; the value is the path to the source file",
+            "type": "string"
+          }
+        },
+        "deps": {
+          "description": "The ids of the atoms this atom directly depends on",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/atomId"
+          }
+        },
+        "tags": {
+          "description": "A collection of potentially domain-specific metadata",
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "deps",
+        "files",
+        "id",
+        "tags"
+      ],
+      "additionalProperties": false
+    },
+    "sdkMetadata": {
+      "description": "Additional information about an SDK",
+      "type": "object",
+      "properties": {
+        "arch": {
+          "description": "The target architecture for binaries referenced in this manifest, expressed as a compiler triple",
+          "type": "string"
+        }
+      },
+      "required": [
+        "arch"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
