@@ -1,0 +1,15 @@
+[submodule "build"]
+	path = build
+	url = ./build
+[submodule "buildtools"]
+	path = buildtools
+	url = ./buildtools
+[submodule "docs"]
+	path = docs
+	url = ./docs
+[submodule "scripts"]
+	path = scripts
+	url = ./scripts
+[submodule "zircon"]
+	path = zircon
+	url = ./zircon
